@@ -6,6 +6,8 @@ import Menu from "./pages/home/Menu";
 import CartPage from "./pages/cart/CartPage";
 import SignUp from "./pages/auth/SignUp";
 import Login from "./pages/auth/Login";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import ResetPassword from "./pages/auth/ResetPassword";
 import Checkout from "./pages/cart/Checkout";
 import OrderSuccess from "./pages/orders/OrderSuccess";
 import OrderTracking from "./pages/orders/OrderTracking";
@@ -45,6 +47,8 @@ function App() {
           <Route path="/menu" element={<Layout><Menu /></Layout>} />
           <Route path="/sign-up" element={<Layout><SignUp /></Layout>} />
           <Route path="/login" element={<Layout><Login /></Layout>} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/about-us" element={<Layout><AboutUs /></Layout>} />
           <Route path="/contact-us" element={<Layout><ContactUs /></Layout>} />
           <Route path="/faqs" element={<Layout><FAQs /></Layout>} />
