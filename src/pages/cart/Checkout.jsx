@@ -5,6 +5,7 @@ import { useGetCartQuery } from "../../services/cart.service";
 import { useCreateOrderMutation } from "../../services/order.service";
 import { useValidatePromoMutation } from "../../services/promo.service";
 import { useCreateCheckoutSessionMutation } from "../../services/payment.service";
+import { useGetProfileQuery, useUpdateProfileMutation } from "../../services/user.service";
 import { toast } from "react-hot-toast";
 
 const Checkout = () => {
@@ -12,27 +13,43 @@ const Checkout = () => {
   const user = useSelector((state) => state.user.data);
 
   const { data: cartData, isLoading: cartLoading } = useGetCartQuery();
+  const { data: profileData } = useGetProfileQuery();
   const [createOrder, { isLoading: orderLoading }] = useCreateOrderMutation();
   const [validatePromo, { isLoading: promoLoading }] =
     useValidatePromoMutation();
   const [createCheckoutSession, { isLoading: checkoutLoading }] =
     useCreateCheckoutSessionMutation();
+  const [updateProfile] = useUpdateProfileMutation();
+
+  const userAddresses = profileData?.data?.addresses || [];
+  const defaultAddress = userAddresses.find(addr => addr.isDefault);
 
   const [formData, setFormData] = useState({
     firstName: user?.firstName || "",
     lastName: user?.lastName || "",
     email: user?.email || "",
-    address: "",
+    address: defaultAddress?.address || "",
     paymentMode: "card",
     comment: "",
   });
 
+  const [selectedAddressId, setSelectedAddressId] = useState(defaultAddress?._id || null);
   const [couponCode, setCouponCode] = useState("");
   const [discount, setDiscount] = useState(0);
   const [isAddressDialogOpen, setIsAddressDialogOpen] = useState(false);
   const [newAddress, setNewAddress] = useState("");
+  const [setAsDefault, setSetAsDefault] = useState(false);
 
   const cartItems = cartData?.data?.items || [];
+
+  // Update address when profile loads
+  useEffect(() => {
+    if (userAddresses.length > 0 && !formData.address) {
+      const defaultAddr = userAddresses.find(addr => addr.isDefault) || userAddresses[0];
+      setFormData(prev => ({ ...prev, address: defaultAddr.address }));
+      setSelectedAddressId(defaultAddr._id);
+    }
+  }, [userAddresses, formData.address]);
 
   // Calculate order summary
   const subtotal = cartItems.reduce(
@@ -43,18 +60,39 @@ const Checkout = () => {
   const deliveryCharges = 100;
   const total = subtotal + taxes + deliveryCharges - discount;
 
-  useEffect(() => {
-    if (cartItems.length === 0 && !cartLoading) {
-      toast.error("Your cart is empty");
-      navigate("/cart");
-    }
-  }, [cartItems, cartLoading, navigate]);
-
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
     });
+  };
+
+  const handleAddressSelect = (addressId, addressText) => {
+    setSelectedAddressId(addressId);
+    setFormData({ ...formData, address: addressText });
+  };
+
+  const handleSaveNewAddress = async () => {
+    if (!newAddress.trim()) {
+      toast.error("Please enter an address");
+      return;
+    }
+
+    try {
+      const updatedAddresses = [
+        ...userAddresses.map(addr => ({ ...addr, isDefault: false })),
+        { address: newAddress, isDefault: setAsDefault }
+      ];
+
+      await updateProfile({ addresses: updatedAddresses }).unwrap();
+      setFormData({ ...formData, address: newAddress });
+      setIsAddressDialogOpen(false);
+      setNewAddress("");
+      setSetAsDefault(false);
+      toast.success("Address added successfully!");
+    } catch (error) {
+      toast.error(error?.data?.message || "Failed to save address");
+    }
   };
 
   const handleApplyCoupon = async () => {
@@ -78,6 +116,13 @@ const Checkout = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Check if cart is empty
+    if (cartItems.length === 0) {
+      toast.error("Your cart is empty");
+      navigate("/cart");
+      return;
+    }
 
     if (
       !formData.firstName ||
@@ -204,20 +249,49 @@ const Checkout = () => {
                     + Add New Address
                   </button>
                 </div>
-                {formData.address && (
-                  <div className="border border-gray-200 rounded-lg p-4 bg-white">
-                    <label className="flex items-start gap-3 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="selectedAddress"
-                        checked={true}
-                        readOnly
-                        className="mt-0.5 w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
-                      />
-                      <span className="text-sm text-gray-700">
-                        {formData.address}
-                      </span>
-                    </label>
+                
+                {userAddresses.length > 0 ? (
+                  <div className="space-y-3">
+                    {userAddresses.map((addr) => (
+                      <div
+                        key={addr._id}
+                        className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                          selectedAddressId === addr._id
+                            ? "border-orange-500 bg-orange-50"
+                            : "border-gray-200 bg-white hover:border-gray-300"
+                        }`}
+                        onClick={() => handleAddressSelect(addr._id, addr.address)}
+                      >
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="selectedAddress"
+                            checked={selectedAddressId === addr._id}
+                            onChange={() => handleAddressSelect(addr._id, addr.address)}
+                            className="mt-0.5 w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
+                          />
+                          <div className="flex-1">
+                            <span className="text-sm text-gray-700">{addr.address}</span>
+                            {addr.isDefault && (
+                              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                Default
+                              </span>
+                            )}
+                          </div>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <p className="text-gray-500 text-sm mb-2">No saved addresses</p>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddressDialogOpen(true)}
+                      className="text-orange-500 hover:text-orange-600 text-sm font-medium"
+                    >
+                      Add your first address
+                    </button>
                   </div>
                 )}
               </div>
@@ -422,14 +496,20 @@ const Checkout = () => {
               />
             </div>
 
+            <div className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={setAsDefault}
+                  onChange={(e) => setSetAsDefault(e.target.checked)}
+                  className="w-4 h-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
+                />
+                <span className="text-sm text-gray-700">Set as default address</span>
+              </label>
+            </div>
+
             <button
-              onClick={() => {
-                if (newAddress.trim()) {
-                  setFormData({ ...formData, address: newAddress });
-                  setIsAddressDialogOpen(false);
-                  setNewAddress("");
-                }
-              }}
+              onClick={handleSaveNewAddress}
               className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-md transition-colors"
             >
               Save address

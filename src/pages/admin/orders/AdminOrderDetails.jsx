@@ -1,18 +1,21 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { useGetOrderByIdQuery, useUpdateOrderStatusMutation } from "../../../services/order.service";
+import { useGetOrderByIdQuery, useUpdateOrderStatusMutation, useCancelOrderMutation } from "../../../services/order.service";
 import { toast } from "react-hot-toast";
 import { format } from "date-fns";
 import heroPizza from "../../../assets/img/hero-pizza.png";
+import CancelOrderDialog from "../../../components/common/CancelOrderDialog";
 
 const AdminOrderDetails = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const { data: orderData, isLoading, isError } = useGetOrderByIdQuery(orderId);
+  const { data: orderData, isLoading, isError, refetch } = useGetOrderByIdQuery(orderId);
   const [updateOrderStatus, { isLoading: isUpdating }] = useUpdateOrderStatusMutation();
+  const [cancelOrder, { isLoading: isCancelling }] = useCancelOrderMutation();
 
   const order = orderData?.data;
   const [status, setStatus] = useState("");
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   useEffect(() => {
     if (order) {
@@ -26,6 +29,7 @@ const AdminOrderDetails = () => {
     "Prepared",
     "Out for delivery",
     "Delivered",
+    "Cancelled",
   ];
 
   const getStatusColor = (status) => {
@@ -35,6 +39,7 @@ const AdminOrderDetails = () => {
       Prepared: "bg-orange-100 text-orange-700",
       "Out for delivery": "bg-purple-100 text-purple-700",
       Delivered: "bg-green-100 text-green-700",
+      Cancelled: "bg-red-100 text-red-700",
     };
     return colors[status] || "bg-gray-100 text-gray-700";
   };
@@ -46,6 +51,34 @@ const AdminOrderDetails = () => {
       toast.success("Order status updated successfully!");
     } catch (error) {
       toast.error(error.data?.message || "Failed to update order status");
+    }
+  };
+
+  const handleCancelOrder = () => {
+    if (order.status === "Delivered") {
+      toast.error("Cannot cancel a delivered order");
+      return;
+    }
+    if (order.status === "Out for delivery") {
+      toast.error("Cannot cancel order that is out for delivery");
+      return;
+    }
+    if (order.status === "Cancelled") {
+      toast.error("Order is already cancelled");
+      return;
+    }
+    setShowCancelDialog(true);
+  };
+
+  const confirmCancelOrder = async () => {
+    try {
+      const result = await cancelOrder(orderId).unwrap();
+      toast.success(result.message || "Order cancelled successfully. Refund will be processed if applicable.");
+      setShowCancelDialog(false);
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || "Failed to cancel order");
+      setShowCancelDialog(false);
     }
   };
 
@@ -98,6 +131,14 @@ const AdminOrderDetails = () => {
 
   return (
     <div>
+      {/* Cancel Order Confirmation Dialog */}
+      <CancelOrderDialog
+        isOpen={showCancelDialog}
+        onClose={() => setShowCancelDialog(false)}
+        onConfirm={confirmCancelOrder}
+        isLoading={isCancelling}
+      />
+
       {/* Breadcrumb */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -110,11 +151,20 @@ const AdminOrderDetails = () => {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          {order.status !== "Cancelled" && order.status !== "Delivered" && order.status !== "Out for delivery" && (
+            <button
+              onClick={handleCancelOrder}
+              disabled={isCancelling}
+              className="text-xs px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded border border-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isCancelling ? "Cancelling..." : "Cancel Order"}
+            </button>
+          )}
           <span className="text-sm text-gray-600">Change Order Status</span>
           <select
             value={status}
             onChange={(e) => handleStatusChange(e.target.value)}
-            disabled={isUpdating}
+            disabled={isUpdating || order.status === "Cancelled"}
             className="text-xs px-3 py-1 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {statusOptions.map((option) => (
@@ -235,6 +285,8 @@ const AdminOrderDetails = () => {
                   ? "text-green-600" 
                   : order.paymentStatus === "PENDING"
                   ? "text-yellow-600"
+                  : order.paymentStatus === "REFUNDED"
+                  ? "text-blue-600"
                   : "text-red-600"
               }`}>
                 {order.paymentStatus}
@@ -271,6 +323,56 @@ const AdminOrderDetails = () => {
                   {order.promoCode}
                 </span>
               </div>
+            )}
+
+            {order.status === "Cancelled" && (
+              <>
+                <div className="border-t border-gray-200 pt-3 mt-3">
+                  <div className="text-sm mb-2">
+                    <span className="text-gray-500">Cancelled At: </span>
+                    <span className="text-gray-900">
+                      {order.cancelledAt ? format(new Date(order.cancelledAt), "dd/MM/yyyy HH:mm") : "-"}
+                    </span>
+                  </div>
+                  {order.refund && order.refund.status !== "NONE" && (
+                    <>
+                      <div className="text-sm">
+                        <span className="text-gray-500">Refund Status: </span>
+                        <span className={`font-medium ${
+                          order.refund.status === "COMPLETED" 
+                            ? "text-green-600" 
+                            : order.refund.status === "PENDING"
+                            ? "text-yellow-600"
+                            : "text-red-600"
+                        }`}>
+                          {order.refund.status}
+                        </span>
+                      </div>
+                      {order.refund.amount > 0 && (
+                        <div className="text-sm">
+                          <span className="text-gray-500">Refund Amount: </span>
+                          <span className="text-gray-900 font-medium">
+                            ₹{order.refund.amount}
+                          </span>
+                        </div>
+                      )}
+                      {order.refund.refundedAt && (
+                        <div className="text-sm">
+                          <span className="text-gray-500">Refunded At: </span>
+                          <span className="text-gray-900">
+                            {format(new Date(order.refund.refundedAt), "dd/MM/yyyy HH:mm")}
+                          </span>
+                        </div>
+                      )}
+                      {order.refund.status === "COMPLETED" && (
+                        <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                          Refund processed. Amount will be credited within 5-7 business days.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>

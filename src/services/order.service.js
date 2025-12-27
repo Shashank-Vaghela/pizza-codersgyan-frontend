@@ -82,6 +82,17 @@ export const orderApi = baseApi.injectEndpoints({
       }),
       providesTags: ["AdminDashboard"],
     }),
+
+    cancelOrder: builder.mutation({
+      query: (id) => ({
+        url: `/orders/${id}/cancel`,
+        method: "PUT",
+      }),
+      invalidatesTags: (result, error, id) => [
+        "Orders",
+        { type: "OrderDetails", id },
+      ],
+    }),
   }),
 });
 
@@ -94,4 +105,5 @@ export const {
   useUpdatePaymentStatusMutation,
   useGetOrderStatsQuery,
   useGetSalesDataQuery,
+  useCancelOrderMutation,
 } = orderApi;
